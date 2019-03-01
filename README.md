@@ -2,7 +2,7 @@
 The program to create a class "Vector2"
 
 Task:
-Реализовать класс Vector2 со следующиеми методами:
+Реализовать класс Vector2 со следующиеми методами</br>
 • operator <<, >> (перегрузка ввода и вывода)
 • Vector2 operator+(const Vector2& other) const;
 • Vector2& operator+=(const Vector2& other);
