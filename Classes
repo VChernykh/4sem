@@ -1,0 +1,39 @@
+#include <iostream>
+
+Object::Object(char t) { type = t; }
+
+Dot::Dot(std::pair<int, int> xy, current_time current_time_event)
+	: Object('D') {
+	click_b = current_time_event; 
+	b_coord = xy;
+}
+
+Line::Line(std::pair<int, int> b, std::pair<int, int> e, current_time c_b, current_time c_e)
+	: Object('L') {
+	b_coord = b;
+	e_coord = e;
+	click_b = c_b; 
+	click_e = c_e;
+}
+
+Line_Ret::Line_Ret(std::pair<int, int> b, std::pair<int, int> e, current_time c_b, current_time c_e, current_time c_m)
+	: Line(b, e, c_b, c_e) {
+	click_m = c_m;
+	type += 'R';
+}
+
+Curve::Curve(std::pair<int, int> b, std::pair<int, int> m, std::pair<int, int>  e, std::pair<int, int>  r, current_time c_b, current_time c_e)
+	: Object('C') {
+	b_coord = b;
+	e_coord = e; 
+	m_coord = m;
+	r_coord = r;
+	click_b = c_b; 
+	click_e = c_e;
+}
+
+Curve_Ret::Curve_Ret(std::pair<int, int> b, std::pair<int, int> m, std::pair<int, int>  e, std::pair<int, int>  r, current_time c_b, current_time c_e, current_time c_m)
+	: Curve(b, m, e, r, c_b, c_e) {
+	click_m = c_m;
+	type += 'R';
+}
