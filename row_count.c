@@ -37,36 +37,42 @@ int main(int argc, char *argv[])
                         }
                 }
         }
-        rbuf = (int*)malloc(each * sizeof(int));
+        rbuf = (int*)malloc(k * sizeof(int));
+        double item = 0;
         double* sum_buf = (double*)malloc(proc_num * sizeof(double));
-        MPI_Scatter(sbuf, each, MPI_INT, rbuf, each, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Barrier(MPI_COMM_WORLD);
-        if(rank == 0)
-                start = MPI_Wtime();
+        MPI_Scatter(sbuf, k, MPI_INT, rbuf, k, MPI_INT, 0, MPI_COMM_WORLD);
 
-        double sum = 0;
-        for(i = each - 1; i >= 0; i--){
-                if(rbuf[i] != 0){
-                        sum += 6 / 3.1415926535 / 3.1415926535 / rbuf[i] / rbuf[i];
-                }
+//time measurement
+        MPI_Barrier(MPI_COMM_WORLD);
+        if(my_rank == 0)
+                start_time = MPI_Wtime();
+
+        for(i = k - 1; i >= 0; i--){
+        //for(i = 1; i <=  k; i++){     
+                if(rbuf[i] != 0)
+                        item += 6 / 3.1415926535 / 3.1415926535 / rbuf[i] / rbuf[i];
         }
 
         MPI_Barrier(MPI_COMM_WORLD);
-        if(rank == 0)
-                finish = MPI_Wtime();
+//
 
-        MPI_Gather(&sum, 1, MPI_DOUBLE, sum_buf, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        if(my_rank == 0)
+                end_time = MPI_Wtime();
 
-        if(rank == 0){
+        MPI_Gather(&item, 1, MPI_DOUBLE, sum_buf, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+        if(my_rank == 0){
                 for(i = proc_num - 1; i >= 0; i--){
-                        total_sum += sum_buf[i];
+                        result += sum_buf[i];
                 }
         }
 
         MPI_Finalize();
 
-        if(rank == 0){
-                printf("Time: %lf\nTotal sum: %lf\n", total_sum, finish - start);
+        if(my_rank == 0){
+                printf("Result: %lf\n", result);
+                printf("Time: %lf\n", end_time - start_time);
         }
         return 0;
 }
+                                             
