@@ -1,197 +1,269 @@
 #include <stdio.h>
 #include <mpi.h>
+#include <stdlib.h>
+#include <math.h>
 #include <malloc.h>
+#define MAX_NUM 999999999
+#define FILE_SIZE 15
+
 
 int main(int argc, char *argv[])
 {
-	int my_rank;
-	int proc_num;
-	int i;
-	int num_len;
-	int count;
-	double start_time = 0;
-	double end_time = 0;
-	char inpf[10];
-	char outf[10];
-	FILE* fr;
-	FILE* fw;
-	int* num1;
+	int rank, proc_num, len, number;
+	double start, end = 0;
+        in_file = (char*)calloc(FILE_SIZE, sizeof(char));
+        out_file = (char*)calloc(FILE_SIZE, sizeof(char));
+        FILE* in;
+        FILE* out;	
+int* num1;
 	int* num2;
 	int* result;
-	int b_per_proc;
+	
+	int block_num, block_size;
+	int ost;
 	MPI_Status Status;
 
 	MPI_Init(&argc, &argv);
-	MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &proc_num);
-
-	if(my_rank == 0)
+	int i;
+	if(rank == 0)
 	{
-		if(argc != 3)
-		{
-			printf("Programm requires two file names!\n");
-			MPI_Finalize();
-			return 0;
-		}
-		sscanf(argv[1], "%s", &inpf);
-		if((fr = fopen(inpf, "r")) == NULL)
-		{
-			printf("Can't open first file!\n");
-		}
-		sscanf(argv[2], "%s", &outf);
-		if((fw = fopen(outf, "w")) == NULL)
-		{
-			printf("Can't open second file!\n");
-		}
-		
-		fscanf(fr, "%d", &num_len);
-		count = num_len / 9;
+		                sscanf(argv[1], "%s", in_file);
+                in = fopen(in_file, "r");
+                sscanf(argv[2], "%s", out_file);
+                out = fopen(out_file, "w");
+                fscanf(in, "%d", &len);
+                number = len / 9;
+                share = number / (proc_num - 1);
+                n1 = (int*)calloc(number, sizeof(int));
+                n2 = (int*)calloc(number,  sizeof(int));
+                for(i = 0; i < number; i++)
+                        fscanf(in, "%9d", &n1[i]);
+                for(i = 0; i < number; i++)
+                        fscanf(in, "%9d", &n2[i]);
 
-		num1 = (int*)malloc(count * sizeof(int));
-		num2 = (int*)malloc(count * sizeof(int));
-		for(i = 0; i < count; i++)
+		block_size = number / (proc_num - 1) / sqrt(proc_num - 1);
+		if(block_size < 1)
 		{
-			fscanf(fr, "%9d", &num1[i]);
+			block_size = 1;
 		}
-		
-		for(i = 0; i < count; i++)
-		{
-			fscanf(fr, "%9d", &num2[i]);
-		}
-	
-		b_per_proc = count / (proc_num - 1);
+		block_num = number / block_size;
+		ost = number % block_size;
 	}
-	MPI_Bcast(&b_per_proc, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	
-	
+	MPI_Bcast(&ost, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&block_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&block_num, 1, MPI_INT, 0, MPI_COMM_WORLD);	
+
 	int* rbuf1;
 	int* rbuf2;
 	int* result0;
+	int buf = 0;
+	int worker = 0;
+	int* cur_sol1;
+	int* cur_sol2;
+	int* is_spec;
+	int* razr1;
+	int* razr2;
+	int* my_sol1;	
+	int* my_sol2;
+	int wr;
 	MPI_Barrier(MPI_COMM_WORLD);
-	if(my_rank == 0)
+	if(rank == 0)
 	{
-		start_time = MPI_Wtime();
-		for(i = 1; i < proc_num; i++)
+		int already = 0;
+		cur_sol1 = (int*)malloc(number * sizeof(int));
+		cur_sol2 = (int*)malloc(number * sizeof(int));
+		is_spec = (int*)malloc((block_num + 1) * sizeof(int));
+		razr1 = (int*)malloc((block_num + 1) * sizeof(int));
+		razr2 = (int*)malloc(block_num * sizeof(int));
+		start = MPI_Wtime();
+		for(i = 0; i < block_num; i++)
 		{
-			MPI_Send(&num1[b_per_proc*(i-1)], b_per_proc, MPI_INT, i, 0, MPI_COMM_WORLD);
-			MPI_Send(&num2[b_per_proc*(i-1)], b_per_proc, MPI_INT, i, 0, MPI_COMM_WORLD);
-		}
-			
-		result0 = (int*)malloc(count * sizeof(int));
-		
-
-		for(i = 1; i < proc_num; i++)
-		{
-			MPI_Recv(&result0[b_per_proc*(i-1)], b_per_proc, MPI_INT, i, 0, MPI_COMM_WORLD, &Status);
-		}
-		for(i = 0; i < count; i++)
-		{
-			if(result0[i] < 1000000000)
+			MPI_Recv(&buf, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+			if(Status.MPI_TAG == 2)
 			{
-				fprintf(fw, "%d", result0[i]);
-			}
-			else
-			{
-				if(i != 0)
+				already++;
+				worker = Status.MPI_SOURCE;
+				MPI_Recv(&wr, 1, MPI_INT, worker, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+				is_spec[wr] = 0;
+				MPI_Recv(&cur_sol1[wr * block_size], block_size, MPI_INT, worker, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+				MPI_Recv(&razr1[wr], 1, MPI_INT, worker, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+				if(Status.MPI_TAG == 7)
 				{
-					fprintf(fw, "%09d", result0[i] - 1000000000);
+					is_spec[wr] = 1;
+					MPI_Recv(&cur_sol2[wr * block_size], block_size, MPI_INT, worker, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+					MPI_Recv(&razr2[wr], 1, MPI_INT, worker, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+				}
+				MPI_Recv(&buf, 1, MPI_INT, worker, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+				
+			}
+			
+			worker = Status.MPI_SOURCE;
+			MPI_Send(&i, 1, MPI_INT, worker, 1, MPI_COMM_WORLD);
+			MPI_Send(&num1[block_size * i], block_size, MPI_INT, worker, 1, MPI_COMM_WORLD);
+			MPI_Send(&num2[block_size * i], block_size, MPI_INT, worker, 1, MPI_COMM_WORLD); 
+		}
+		int* ostbuf = (int*)malloc(ost * sizeof(int));
+		ostbuf[ost - 1] = num1[block_num * block_size + ost - 1] + num2[block_size * block_num + ost - 1];
+		for(i = ost - 2; i >= 0; i--)
+		{
+			ostbuf[i] = num1[block_num * block_size + i] + num2[block_num * block_size + i];
+			if(ostbuf[i + 1] > MAX_NUM)
+			{
+				ostbuf[i] += 1;
+			}
+		}
+		is_spec[block_num] = 0;
+		razr1[block_num] = 0;
+		for(i = 1; i < proc_num; i++)
+		{
+			MPI_Send(&buf, 1, MPI_INT, i, 5, MPI_COMM_WORLD);
+		}
+		for(i = 0; i < block_num - already; i++)
+		{
+			MPI_Recv(&buf, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+			worker = Status.MPI_SOURCE;
+			MPI_Recv(&wr, 1, MPI_INT, worker, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+			is_spec[wr] = 0;
+			MPI_Recv(&cur_sol1[wr * block_size], block_size, MPI_INT, worker, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+			MPI_Recv(&razr1[wr], 1, MPI_INT, worker, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+			if(Status.MPI_TAG == 7)
+			{
+				is_spec[wr] = 1;
+				MPI_Recv(&cur_sol2[wr * block_size], block_size, MPI_INT, worker, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+				MPI_Recv(&razr2[wr], 1, MPI_INT, worker, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+			}
+			MPI_Recv(&buf, 1, MPI_INT, worker, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+		}
+		result0 = (int*)malloc(number * sizeof(int));
+		if(ost != 0){
+			for(i = 0; i < ost; i++)
+				result0[block_size * block_num + i] = ostbuf[i];
+			if(ostbuf[0] > MAX_NUM)
+		
+				razr1[block_num] = 1;
+		}
+		int j;
+		for(i = block_num - 1; i >= 0; i--)
+		{
+			if(is_spec[i] == 1)
+			{
+				if((is_spec[i + 1] == 1) || (is_spec[i + 1] != 1 && razr1[i + 1] == 1))
+				{
+					for(j = 0; j < block_size; j++)
+						result0[i * block_size + j] = cur_sol2[i * block_size + j];
 				}
 				else
 				{
-					fprintf(fw, "%d", result0[0]);
+					for(j = 0; j < block_size; j++)
+						result0[i * block_size + j] = cur_sol1[i * block_size + j];
 				}
 			}
-			
+			else
+			{
+				for(j = 0; j < block_size; j++)
+					result0[i * block_size + j] = cur_sol1[i * block_size + j];
+				if(is_spec[i+1] == 1)
+					result0[(i + 1) * block_size - 1] += razr2[i+1];
+				else
+						result0[(i + 1) * block_size - 1] += razr1[i+1];
+			}
+		}
 
-						
-		}	
+		for(i = 0; i < number; i++)
+		{
+			if(result0[i] < 1000000000)
+				fprintf(out, "%d", result0[i]);
+			else
+			{
+				if(i != 0)
+					fprintf(out, "%09d", result0[i] - 1000000000);
+				else
+					fprintf(out, "%d", result0[0]);
+			}
+		}
 
 	}
 	else
 	{
-		rbuf1 = (int*)malloc(b_per_proc * sizeof(int));
-		rbuf2 = (int*)malloc(b_per_proc * sizeof(int));
-		MPI_Recv(rbuf1, b_per_proc, MPI_INT, 0, 0, MPI_COMM_WORLD, &Status);
-		MPI_Recv(rbuf2, b_per_proc, MPI_INT, 0, 0, MPI_COMM_WORLD, &Status);
-
-		result = (int*)malloc(b_per_proc * sizeof(int));
-		result[b_per_proc - 1] = rbuf1[b_per_proc - 1] + rbuf2[b_per_proc - 1];
-		if(result[b_per_proc - 1] != 999999999 && b_per_proc >= 2)
+		int row_num;
+		rbuf1 = (int*)malloc(block_size * sizeof(int));
+		rbuf2 = (int*)malloc(block_size * sizeof(int));
+		my_sol1 = (int*)malloc(block_size * sizeof(int));
+		my_sol2 = (int*)malloc(block_size * sizeof(int));
+		int razr1;
+		int razr2;
+	
+		while(1)
 		{
-			for(i = b_per_proc - 2; i >= 0; i--)
+			MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+			
+			MPI_Recv(&row_num, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+			if(Status.MPI_TAG != 1)
+				break;
+			MPI_Recv(rbuf1, block_size, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+			MPI_Recv(rbuf2, block_size, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &Status);
+			if(Status.MPI_TAG == 1)
 			{
-				result[i] = rbuf1[i] + rbuf2[i];
-				if(result[i+1] > 999999999)
+				razr1 = 0;
+				my_sol1[block_size - 1] = rbuf1[block_size - 1] + rbuf2[block_size - 1];
+				
+				if(my_sol1[block_size - 1] != MAX_NUM)
 				{
-					result[i] += 1;
+					for(i = block_size - 2; i >= 0; i--)
+					{
+						my_sol1[i] = rbuf1[i] + rbuf2[i];
+						if(my_sol1[i+1] > MAX_NUM)
+							my_sol1[i] += 1;
+					}
+					if(my_sol1[0] > MAX_NUM)
+						razr1 = 1;
+					MPI_Send(&rank, 1, MPI_INT, 0, 2, MPI_COMM_WORLD);
+					MPI_Send(&row_num, 1, MPI_INT, 0, 2, MPI_COMM_WORLD);
+					MPI_Send(my_sol1, block_size, MPI_INT, 0, 0, MPI_COMM_WORLD);
+					MPI_Send(&razr1, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
 				}
-			}
-			int flag = 0;
-			if(result[0] > 999999999)
-			{
-				flag = 1;
-			}
-			if(my_rank != 1)
-				MPI_Send(&flag, 1, MPI_INT, my_rank - 1, 0, MPI_COMM_WORLD);
-			int prev = 0;
-			if(my_rank != proc_num - 1)
-				MPI_Recv(&prev, 1, MPI_INT, my_rank + 1, 0, MPI_COMM_WORLD, &Status);
-			result[b_per_proc - 1] += prev;
+				else
+				{
+					razr1 = 0;
+					razr2 = 0;
+					my_sol2[block_size - 1] = my_sol1[block_size - 1] + 1;
+					for(i = block_size - 2; i >= 0; i--)
+					{
+						my_sol1[i] = rbuf1[i] + rbuf2[i];
+						if(my_sol1[i+1] > MAX_NUM)
+							my_sol1[i] += 1;
+						my_sol2[i] = rbuf1[i] + rbuf2[i];
+						if(my_sol2[i+1] > MAX_NUM)
+							my_sol2[i] += 1;
+					}
+					if(my_sol1[0] > MAX_NUM)
+						razr1 = 1;
+					if(my_sol2[0] > MAX_NUM)
+						razr2 = 1;
+					MPI_Send(&rank, 1, MPI_INT, 0, 2, MPI_COMM_WORLD);
+					MPI_Send(&row_num, 1, MPI_INT, 0, 2, MPI_COMM_WORLD);
+					MPI_Send(my_sol1, block_size, MPI_INT, 0, 7, MPI_COMM_WORLD);
+					MPI_Send(&razr1, 1, MPI_INT, 0, 7, MPI_COMM_WORLD);
+					MPI_Send(my_sol2, block_size, MPI_INT, 0, 0, MPI_COMM_WORLD);
+					MPI_Send(&razr2, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+				}	
 
-			MPI_Send(result, b_per_proc, MPI_INT, 0, 0, MPI_COMM_WORLD);
-		}
-		else
-		{
-			int* resultplus = (int*)malloc(b_per_proc * sizeof(int));
-			resultplus[b_per_proc - 1] = result[b_per_proc - 1] + 1;
-			if(b_per_proc >= 2)
-			{
-				for(i = b_per_proc - 2; i >= 0; i--)
-				{
-					result[i] = rbuf1[i] + rbuf2[i];
-					if(result[i+1] > 999999999)
-					{
-						result[i] += 1;
-					}
-					resultplus[i] = rbuf1[i] + rbuf2[i];
-					if(resultplus[i+1] > 999999999)
-					{
-						resultplus[i] += 1;
-					}
-				}
-			}
-			int prev = 0;
-			if(my_rank != proc_num - 1)
-				MPI_Recv(&prev, 1, MPI_INT, my_rank + 1, 0, MPI_COMM_WORLD, &Status);
-			if(prev == 0)
-			{
-				MPI_Send(result, b_per_proc, MPI_INT, 0, 0, MPI_COMM_WORLD);
-				int flag = 0;
-				if(result[0] > 999999999)
-					flag = 1;
-				if(my_rank != 1)
-					MPI_Send(&flag, 1, MPI_INT, my_rank - 1, 0, MPI_COMM_WORLD);
 			}
 			else
 			{
-				MPI_Send(resultplus, b_per_proc, MPI_INT, 0, 0, MPI_COMM_WORLD);
-				int flag = 0;
-				if(resultplus[0] > 999999999)
-					flag = 1;
-				if(my_rank != 1)
-					MPI_Send(&flag, 1, MPI_INT, my_rank - 1, 0, MPI_COMM_WORLD);
+				break;
 			}
 		}
-
 	}
 
 	MPI_Barrier(MPI_COMM_WORLD);
-	if(my_rank == 0)
+	if(rank == 0)
 	{
-		end_time = MPI_Wtime();
-		printf("Time: %f\n", end_time - start_time); 
-		fclose(fr);
-		fclose(fw);
+		end = MPI_Wtime();
+		printf("%f\n", end - start); 
+		fclose(in); fclose(out);
 	}
 	MPI_Finalize();
 	return 0;
