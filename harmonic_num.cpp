@@ -1,41 +1,49 @@
-#include "omp.h"
-#include <iostream>
-#include <unistd.h>
+#include <stdio.h>
+#include <omp.h>
 
 
-int main(int argc, char **argv) {
-    int num_threads = std::stoi(argv[1]);
-    long int N = std::stoi(argv[2]);
-    omp_set_num_threads(num_threads);
-    double result = 0;
-    double start = omp_get_wtime();
-    omp_lock_t mutex;
-    omp_init_lock(&mutex);
+int main(int argc, char const *argv[])
+{
+	// scp -P 52960 /Users/andreyandriyaynen/CLionProjects/2_sem_parprog/series.c s71709@remote.vdi.mipt.ru:/home/s71709/2_sem_init
+	// gcc -fopenmp -std=c99 -o series series.c
+	//first arg is num of threads
+	int n_threads = atoi(argv[1]);
 
-#pragma omp parallel{
-        double sum = 0;
+	char *ptr;
+	long int N = strtol(argv[2], &ptr, 10);
+	omp_set_num_threads(n_threads);
+	double res = 0;
+	double start_time = omp_get_wtime();
+	omp_lock_t mutex;
+    	omp_init_lock(&mutex);
 
-#pragma omp for
-        for (int i = 1; i <= N; ++i)
-            sum += 1 / (double) i;
+#pragma omp parallel
+	{
+		double sum = 0;
 
-        omp_set_lock(&mutex);
-        result += sum;
-        omp_unset_lock(&mutex);
-    };
+	#pragma omp for
+		for (int i = 1; i < N; i++)
+		{
+			sum += 1 / (double) i;
+		}
 
-    omp_destroy_lock(&mutex);
-    double finish = omp_get_wtime();
-    double parr = omp_get_wtime() - start;
-    std::cout << "Parallel\n" << "Counted: " << result << "\nWorking time: " << finish - start << std::endl;
-    result = 0;
-    start = omp_get_wtime();
-    for (int i = 1; i <= N; ++i) {
-        result += 1 / (double) i;
-    }
-    finish = omp_get_wtime();
-    double sequence = finish - start;
-    std::cout << "\nSequence\n" << "Counted: " << result << "\nWorking time: " << finish - start << std::endl;
-    std::cout << "\nBoost: " << parr/sequence << std::endl << "Num processes: " << num_threads << std::endl;
-    return 0;
+		omp_set_lock(&mutex);
+		res += sum;
+		omp_unset_lock(&mutex);
+	};
+	omp_destroy_lock(&mutex);
+	double duration_par = omp_get_wtime() - start_time;
+	printf("Number of threads= %d\n", n_threads);
+	printf("Parallel: n=%ld  Time=%f Result=%f\n", N,duration_par,res);
+	res = 0;
+	start_time = omp_get_wtime();
+	for (int i = 1; i < N; i++){
+		res += 1 / (double) i;
+	}
+
+	double duration_seq = omp_get_wtime() - start_time;
+	printf("Sequence: n=%ld  Time=%f\n, Result=%f", N, duration_seq, res);
+	printf("Acceleration= %f\n", duration_seq / duration_par);
+
+	return 0;
 }
